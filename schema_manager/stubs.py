@@ -50,9 +50,10 @@ def generate_stub_ddl(mapping: MappingConfig) -> str:
         table = ws["table"]
         statements.append(
             f"CREATE TABLE IF NOT EXISTS {table} (\n"
-            f"    external_id     TEXT NOT NULL PRIMARY KEY,\n"
+            f"    _lw_external_id TEXT NOT NULL PRIMARY KEY,\n"
             f"    cluster_id      TEXT,\n"
-            f"    data            JSONB NOT NULL,\n"
+            f"    _written        JSONB NOT NULL,\n"
+            f"    _written_ts     JSONB,\n"
             f"    _etag           TEXT,\n"
             f"    _written_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n"
             f"    _sync_run_id    UUID\n"
