@@ -11,12 +11,12 @@ health_server:
   listen: "0.0.0.0:9080"
 
 watch:
-  poll_interval: 30          # seconds between fallback hash checks
-  stream_ready_timeout: 60   # seconds to wait for stream tables after DDL
+  poll_interval: 30 # seconds between fallback hash checks
+  stream_ready_timeout: 60 # seconds to wait for stream tables after DDL
 
 shadow_mode:
-  on_change: always          # 'always' | 'new_targets_only' | 'never'
-  auto_promote_after: null   # e.g. '24h' to auto-promote
+  on_change: never # 'always' | 'new_targets_only' | 'never'
+  auto_promote_after: null # e.g. '24h' to auto-promote
 
 observability:
   logging:

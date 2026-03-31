@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 import asyncpg
 
 # Increment this when adding new tables or columns to schema-manager's own schema.
-CURRENT_VERSION = 5
+CURRENT_VERSION = 6
 
 _MIGRATIONS: dict[int, str] = {
     1: """
@@ -81,6 +81,14 @@ _MIGRATIONS: dict[int, str] = {
         GRANT USAGE ON SCHEMA pgtrickle_changes TO sesam_ingest;
         ALTER DEFAULT PRIVILEGES IN SCHEMA pgtrickle_changes
             GRANT INSERT ON TABLES TO sesam_ingest;
+    """,
+    6: """
+        -- pgtrickle's DDL event trigger runs CREATE OR REPLACE FUNCTION on
+        -- functions owned by inandout. PostgreSQL allows this only for the
+        -- function's owner OR members of the owning role. Grant sesam_ingest
+        -- membership in inandout so it can replace pgtrickle CDC functions
+        -- when it ALTERs staging tables for schema drift.
+        GRANT inandout TO sesam_ingest;
     """,
 }
 
