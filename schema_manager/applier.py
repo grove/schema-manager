@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
+import re
+
 import asyncpg
+
+
+async def ensure_pgtrickle_extension(conn: asyncpg.Connection) -> None:
+    """Create the pg_trickle extension if it doesn't exist."""
+    await conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trickle CASCADE")
 
 
 async def apply_pgtrickle_sql(conn: asyncpg.Connection, sql: str) -> None:
@@ -15,6 +22,22 @@ async def apply_pgtrickle_sql(conn: asyncpg.Connection, sql: str) -> None:
     """
     async with conn.transaction():
         await conn.execute(sql)
+
+
+async def set_stream_schedules(
+    conn: asyncpg.Connection,
+    stream_names: set[str],
+    schedule: str = "30s",
+) -> None:
+    """Set refresh schedules on leaf delta stream tables.
+
+    Only applies to stream tables whose name starts with '_delta_'.
+    """
+    for name in sorted(stream_names):
+        if name.startswith("_delta_"):
+            await conn.execute(
+                f"SELECT pgtrickle.alter_stream_table('{name}', schedule => '{schedule}')"
+            )
 
 
 async def apply_stub_ddl(conn: asyncpg.Connection, stub_sql: str) -> None:

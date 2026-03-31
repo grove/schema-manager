@@ -103,6 +103,57 @@ async def test_stub_ddl_creates_tables(config_dir, postgres_dsn):
 
         # Running stubs again should be a no-op (IF NOT EXISTS)
         await conn.execute(stub_sql)
+
+        # Verify full schema columns match what in-and-out ingest expects
+        cols = await conn.fetch(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'hubspot_contacts' ORDER BY ordinal_position"
+        )
+        col_names = [r["column_name"] for r in cols]
+        expected_cols = [
+            "external_id", "data", "raw", "_ingested_at", "_sync_run_id",
+            "_raw_hash", "_deleted", "_deleted_at", "_schema_version",
+            "_source_version", "_last_written", "_lineage",
+        ]
+        assert col_names == expected_cols
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_stub_ddl_reads_table_name_from_config(postgres_dsn, tmp_path):
+    """Stub DDL uses the 'table' key from mapping sources when present."""
+    mapping = {
+        "sources": {
+            "hubspot_contacts": {
+                "primary_key": "external_id",
+                "table": "inout_src_hubspot_contacts",
+            },
+        },
+        "targets": {},
+    }
+    mapping_path = tmp_path / "mapping.yaml"
+    mapping_path.write_text(yaml.dump(mapping))
+    connectors_dir = tmp_path / "connectors"
+    connectors_dir.mkdir()
+
+    cfg = SchemaManagerConfig(
+        database_dsn=postgres_dsn,
+        mapping_path=mapping_path,
+        connectors_dir=connectors_dir,
+    )
+    inputs = ConfigInputs.load(cfg)
+    stub_sql = generate_stub_ddl(inputs.mapping)
+    assert "inout_src_hubspot_contacts" in stub_sql
+
+    conn = await asyncpg.connect(postgres_dsn)
+    try:
+        await conn.execute(stub_sql)
+        result = await conn.fetchval(
+            "SELECT count(*) FROM information_schema.tables "
+            "WHERE table_name = 'inout_src_hubspot_contacts'"
+        )
+        assert result == 1
     finally:
         await conn.close()
 

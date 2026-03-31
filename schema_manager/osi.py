@@ -12,9 +12,9 @@ class OsiError(RuntimeError):
 
 
 def render_mapping(mapping_path: Path, connectors_dir: Path) -> str:
-    """Run osi-engine render and return the generated matviews SQL."""
+    """Run osi-engine render --materialize and return the generated matviews SQL."""
     result = subprocess.run(
-        ["osi-engine", "render", str(mapping_path), "--connectors", str(connectors_dir)],
+        ["osi-engine", "render", "--materialize", str(mapping_path)],
         capture_output=True,
         text=True,
     )
@@ -32,7 +32,7 @@ def convert_to_pgtrickle(matviews_sql: str) -> str:
         tmp_path = f.name
 
     result = subprocess.run(
-        ["python", "/usr/local/bin/convert_matviews_to_pgtrickle.py", tmp_path],
+        ["python3", "/usr/local/bin/convert_matviews_to_pgtrickle.py", tmp_path],
         capture_output=True,
         text=True,
     )

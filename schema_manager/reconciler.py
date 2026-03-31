@@ -142,15 +142,21 @@ class Reconciler:
             await validate_views(conn, pgtrickle_sql)
             log.info("EXPLAIN validation passed")
 
-            # 7. Apply via create_or_replace (idempotent, OID-preserving)
+            # 7. Ensure pg_trickle extension exists
+            await applier.ensure_pgtrickle_extension(conn)
+
+            # 8. Apply via create_or_replace (idempotent, OID-preserving)
             await applier.apply_pgtrickle_sql(conn, pgtrickle_sql)
 
-            # 8. Drop orphaned stream tables
+            # 9. Drop orphaned stream tables
             current_names = _extract_stream_table_names(pgtrickle_sql)
             await applier.drop_orphaned_stream_tables(conn, current_names)
             log.info("DDL applied", stream_tables=len(current_names))
 
-            # 9. Record new schema version
+            # 10. Set refresh schedules on leaf delta stream tables
+            await applier.set_stream_schedules(conn, current_names)
+
+            # 11. Record new schema version
             for component in ("ingest", "writeback"):
                 await component_gate.set_schema_version(conn, component, inputs.schema_hash)
 
