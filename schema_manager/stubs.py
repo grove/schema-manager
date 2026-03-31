@@ -16,6 +16,8 @@ def generate_stub_ddl(mapping: MappingConfig) -> str:
     Stubs use CREATE TABLE IF NOT EXISTS so they are idempotent.
     The column set matches the `source_table_ddl()` in the in-and-out engine
     exactly so ingest (in freeze mode) finds all expected columns.
+    Also creates lwstate stubs for any mapping with a written_state block so
+    that EXPLAIN validation passes before the writeback engine creates them.
     """
     statements = []
     for source_name, source_cfg in mapping.sources.items():
@@ -40,6 +42,23 @@ def generate_stub_ddl(mapping: MappingConfig) -> str:
             f"CREATE INDEX IF NOT EXISTS {table}_ingested_at_idx ON {table} (_ingested_at);\n"
             f"ALTER TABLE {table} OWNER TO sesam_ingest;"
         )
+
+    for m in mapping.raw.get("mappings", []):
+        ws = m.get("written_state")
+        if not ws:
+            continue
+        table = ws["table"]
+        statements.append(
+            f"CREATE TABLE IF NOT EXISTS {table} (\n"
+            f"    external_id     TEXT NOT NULL PRIMARY KEY,\n"
+            f"    cluster_id      TEXT,\n"
+            f"    data            JSONB NOT NULL,\n"
+            f"    _etag           TEXT,\n"
+            f"    _written_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n"
+            f"    _sync_run_id    UUID\n"
+            f");"
+        )
+
     return "\n\n".join(statements)
 
 
