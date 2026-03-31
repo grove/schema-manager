@@ -46,6 +46,23 @@ async def apply_stub_ddl(conn: asyncpg.Connection, stub_sql: str) -> None:
         await conn.execute(stub_sql)
 
 
+async def enforce_stub_ownership(conn: asyncpg.Connection) -> None:
+    """Ensure all inout_src_* staging tables are owned by sesam_ingest.
+
+    Run on every reconcile cycle (not gated by schema hash) so that tables
+    created before this fix, or by other tools, are always corrected.
+    The ingest engine needs ownership to ALTER TABLE for schema drift.
+    """
+    rows = await conn.fetch(
+        "SELECT tablename FROM pg_tables "
+        "WHERE schemaname = 'public' AND tablename LIKE 'inout_src_%' "
+        "  AND tableowner != 'sesam_ingest'"
+    )
+    for row in rows:
+        tbl = row["tablename"]
+        await conn.execute(f"ALTER TABLE {tbl} OWNER TO sesam_ingest")  # noqa: S608
+
+
 async def drop_orphaned_stream_tables(
     conn: asyncpg.Connection, current_names: set[str]
 ) -> None:

@@ -37,7 +37,8 @@ def generate_stub_ddl(mapping: MappingConfig) -> str:
             f"    _lineage         JSONB,\n"
             f"    PRIMARY KEY ({pk})\n"
             f");\n"
-            f"CREATE INDEX IF NOT EXISTS {table}_ingested_at_idx ON {table} (_ingested_at);"
+            f"CREATE INDEX IF NOT EXISTS {table}_ingested_at_idx ON {table} (_ingested_at);\n"
+            f"ALTER TABLE {table} OWNER TO sesam_ingest;"
         )
     return "\n\n".join(statements)
 

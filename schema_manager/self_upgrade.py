@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 import asyncpg
 
 # Increment this when adding new tables or columns to schema-manager's own schema.
-CURRENT_VERSION = 3
+CURRENT_VERSION = 5
 
 _MIGRATIONS: dict[int, str] = {
     1: """
@@ -64,6 +64,23 @@ _MIGRATIONS: dict[int, str] = {
         -- sesam_ingest needs CREATE on the schema so the ingest engine can
         -- run its own CREATE TABLE IF NOT EXISTS safety guard on startup.
         GRANT CREATE ON SCHEMA public TO sesam_ingest;
+    """,
+    4: """
+        -- sesam_ingest queries pgtrickle.pgt_dependencies to check CDC
+        -- dependencies before performing schema drift (ALTER TABLE).
+        GRANT USAGE ON SCHEMA pgtrickle TO sesam_ingest;
+        GRANT SELECT ON ALL TABLES IN SCHEMA pgtrickle TO sesam_ingest;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA pgtrickle
+            GRANT SELECT ON TABLES TO sesam_ingest;
+    """,
+    5: """
+        -- When sesam_ingest (as staging table owner) runs ALTER TABLE,
+        -- pgtrickle's DDL event trigger fires and tries to CREATE OR REPLACE
+        -- FUNCTION in pgtrickle_changes. sesam_ingest needs CREATE there.
+        GRANT CREATE ON SCHEMA pgtrickle_changes TO sesam_ingest;
+        GRANT USAGE ON SCHEMA pgtrickle_changes TO sesam_ingest;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA pgtrickle_changes
+            GRANT INSERT ON TABLES TO sesam_ingest;
     """,
 }
 

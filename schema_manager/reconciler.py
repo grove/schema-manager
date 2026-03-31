@@ -99,6 +99,9 @@ class Reconciler:
             inputs = ConfigInputs.load(self.cfg)
             log.info("config loaded", hash=inputs.schema_hash[:12])
 
+            # Always enforce staging table ownership regardless of schema hash.
+            await applier.enforce_stub_ownership(conn)
+
             current_hash = await component_gate.get_schema_version(conn, "ingest")
             if current_hash == inputs.schema_hash:
                 log.info("schema up to date, skipping DDL")
