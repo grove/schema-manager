@@ -6,6 +6,8 @@ import re
 
 import asyncpg
 
+from schema_manager.metrics import schema_ddl_operations_total
+
 
 async def ensure_pgtrickle_extension(conn: asyncpg.Connection) -> None:
     """Create the pg_trickle extension if it doesn't exist."""
@@ -22,6 +24,7 @@ async def apply_pgtrickle_sql(conn: asyncpg.Connection, sql: str) -> None:
     """
     async with conn.transaction():
         await conn.execute(sql)
+    schema_ddl_operations_total.labels(operation="pgtrickle_apply").inc()
 
 
 async def set_stream_schedules(
@@ -44,6 +47,7 @@ async def apply_stub_ddl(conn: asyncpg.Connection, stub_sql: str) -> None:
     """Apply CREATE TABLE IF NOT EXISTS stubs for all sources."""
     async with conn.transaction():
         await conn.execute(stub_sql)
+    schema_ddl_operations_total.labels(operation="stub").inc()
 
 
 async def enforce_stub_ownership(conn: asyncpg.Connection) -> None:
@@ -73,12 +77,10 @@ async def drop_orphaned_stream_tables(
     )
     if not ext_loaded:
         return
-    existing = await conn.fetch(
-        "SELECT pgt_name FROM pgtrickle.pgt_stream_tables"
-    )
+    existing = await conn.fetch("SELECT pgt_name FROM pgtrickle.pgt_stream_tables")
     existing_names = {row["pgt_name"] for row in existing}
     orphans = existing_names - current_names
     for name in orphans:
-        await conn.execute(
-            "SELECT pgtrickle.drop_stream_table($1)", name
-        )
+        await conn.execute("SELECT pgtrickle.drop_stream_table($1)", name)
+    if orphans:
+        schema_ddl_operations_total.labels(operation="orphan_drop").inc()

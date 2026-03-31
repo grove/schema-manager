@@ -5,8 +5,11 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-import structlog
+from prometheus_client import generate_latest
 from aiohttp import web
+import structlog
+
+from schema_manager.metrics import REGISTRY
 
 if TYPE_CHECKING:
     from schema_manager.reconciler import Reconciler
@@ -19,6 +22,7 @@ def build_app(reconciler: "Reconciler") -> web.Application:
     app["reconciler"] = reconciler
     app.router.add_get("/health", handle_health)
     app.router.add_get("/ready", handle_ready)
+    app.router.add_get("/metrics", handle_metrics)
     app.router.add_post("/reconcile", handle_reconcile)
     app.router.add_post("/promote", handle_promote)
     return app
@@ -26,6 +30,15 @@ def build_app(reconciler: "Reconciler") -> web.Application:
 
 async def handle_health(request: web.Request) -> web.Response:
     return web.json_response({"status": "ok"})
+
+
+async def handle_metrics(request: web.Request) -> web.Response:
+    output = generate_latest(REGISTRY)
+    return web.Response(
+        body=output,
+        content_type="text/plain",
+        charset="utf-8",
+    )
 
 
 async def handle_ready(request: web.Request) -> web.Response:
@@ -51,6 +64,7 @@ async def handle_reconcile(request: web.Request) -> web.Response:
 
 async def handle_promote(request: web.Request) -> web.Response:
     from schema_manager.shadow import promote
+
     reconciler: Reconciler = request.app["reconciler"]
     try:
         await promote(reconciler.config_path)
