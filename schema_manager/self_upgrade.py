@@ -98,7 +98,10 @@ async def _ensure_role_passwords(conn: asyncpg.Connection) -> None:
             continue
         password = urlparse(dsn).password
         if password:
-            # rolname is hardcoded above — not user input. Password is parameterised.
+            # ALTER ROLE is DDL — Postgres doesn't allow $1 placeholders in DDL.
+            # rolname is a hardcoded literal (not user input).
+            # Escape the password via quote_literal() to handle any special chars.
+            quoted = await conn.fetchval("SELECT quote_literal($1)", password)
             await conn.execute(
-                f"ALTER ROLE {rolname} WITH ENCRYPTED PASSWORD $1", password  # noqa: S608
+                f"ALTER ROLE {rolname} WITH ENCRYPTED PASSWORD {quoted}"  # noqa: S608
             )
