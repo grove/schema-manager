@@ -304,3 +304,142 @@ async def test_full_bootstrap_sequence(config_dir, postgres_dsn):
         assert tables == 6
     finally:
         await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_auto_promotion_not_triggered_when_disabled(postgres_dsn):
+    """Auto-promotion returns False when auto_promote_after is None."""
+    from schema_manager.shadow import check_auto_promotion
+
+    conn = await asyncpg.connect(postgres_dsn)
+    try:
+        await gate_self_upgrade(conn)
+        await shadow_self_upgrade(conn)
+        await set_desired(conn, "writeback", "shadow")
+        result = await check_auto_promotion(conn, None)
+        assert result is False
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_auto_promotion_respects_soak_period(postgres_dsn):
+    """Auto-promotion returns False when soak period has not elapsed."""
+    from schema_manager.shadow import check_auto_promotion
+
+    conn = await asyncpg.connect(postgres_dsn)
+    try:
+        await gate_self_upgrade(conn)
+        await shadow_self_upgrade(conn)
+        # Set writeback to shadow — just now
+        await set_desired(conn, "writeback", "shadow")
+        # Try auto-promote with 24h soak — should not promote
+        result = await check_auto_promotion(conn, "24h")
+        assert result is False
+        # Writeback should still be in shadow
+        state = await conn.fetchval(
+            "SELECT desired FROM component_state WHERE component = 'writeback'"
+        )
+        assert state == "shadow"
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_auto_promotion_triggers_after_soak(postgres_dsn):
+    """Auto-promotion promotes when soak period has elapsed and gates pass."""
+    from schema_manager.shadow import check_auto_promotion
+
+    conn = await asyncpg.connect(postgres_dsn)
+    try:
+        await gate_self_upgrade(conn)
+        await shadow_self_upgrade(conn)
+        await set_desired(conn, "writeback", "shadow")
+
+        # Backdate updated_at to simulate elapsed soak period
+        await conn.execute(
+            "UPDATE component_state SET updated_at = now() - interval '25 hours' "
+            "WHERE component = 'writeback'"
+        )
+
+        # Auto-promote with 24h soak — should promote (no pg-trickle tables = gates skipped)
+        result = await check_auto_promotion(conn, "24h")
+        assert result is True
+
+        state = await conn.fetchval(
+            "SELECT desired FROM component_state WHERE component = 'writeback'"
+        )
+        assert state == "running"
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_parse_duration():
+    """Duration parser handles all supported formats."""
+    from schema_manager.shadow import parse_duration
+
+    assert parse_duration("24h") == __import__("datetime").timedelta(hours=24)
+    assert parse_duration("30m") == __import__("datetime").timedelta(minutes=30)
+    assert parse_duration("7d") == __import__("datetime").timedelta(days=7)
+    assert parse_duration("60s") == __import__("datetime").timedelta(seconds=60)
+    assert parse_duration(None) is None
+    assert parse_duration("") is None
+
+
+@pytest.mark.asyncio
+async def test_privilege_separation_roles_created(postgres_dsn):
+    """Self-upgrade v2 creates sesam_ingest and sesam_writeback roles."""
+    conn = await asyncpg.connect(postgres_dsn)
+    try:
+        await self_upgrade_run(conn)
+
+        for role in ("sesam_ingest", "sesam_writeback"):
+            exists = await conn.fetchval(
+                "SELECT 1 FROM pg_roles WHERE rolname = $1", role
+            )
+            assert exists is not None, f"Role {role} should exist"
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_promote_round_trip(config_dir, postgres_dsn):
+    """Shadow → promote round trip via the shadow module."""
+    from schema_manager.shadow import promote
+
+    conn = await asyncpg.connect(postgres_dsn)
+    try:
+        await gate_self_upgrade(conn)
+        await shadow_self_upgrade(conn)
+
+        # Start in shadow mode
+        await set_desired(conn, "writeback", "shadow")
+        state = await conn.fetchval(
+            "SELECT desired FROM component_state WHERE component = 'writeback'"
+        )
+        assert state == "shadow"
+    finally:
+        await conn.close()
+
+    # Write a temporary config for the promote function
+    cfg_path = config_dir / "schema-manager.yaml"
+    cfg_path.write_text(yaml.dump({
+        "database": {"dsn": postgres_dsn},
+        "config_paths": {
+            "mapping": str(config_dir / "mapping.yaml"),
+            "connectors": str(config_dir / "connectors"),
+        },
+    }))
+
+    # Promote via the module function
+    await promote(str(cfg_path))
+
+    conn = await asyncpg.connect(postgres_dsn)
+    try:
+        state = await conn.fetchval(
+            "SELECT desired FROM component_state WHERE component = 'writeback'"
+        )
+        assert state == "running"
+    finally:
+        await conn.close()

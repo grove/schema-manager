@@ -66,9 +66,28 @@ class Reconciler:
         watcher = ConfigWatcher(
             watch_dir=watch_dir,
             poll_interval=self.cfg.poll_interval,
-            on_change=self.reconcile_once,
+            on_change=self._on_watch_tick,
         )
         await watcher.run()
+
+    async def _on_watch_tick(self) -> None:
+        """Called on each watch cycle: reconcile config + check auto-promotion."""
+        await self.reconcile_once()
+        await self._check_auto_promotion()
+
+    async def _check_auto_promotion(self) -> None:
+        """If writeback is in shadow mode and soak gates pass, auto-promote."""
+        if not self.cfg.auto_promote_after:
+            return
+        conn = await asyncpg.connect(self.cfg.database_dsn)
+        try:
+            promoted = await shadow.check_auto_promotion(conn, self.cfg.auto_promote_after)
+            if promoted:
+                self.is_ready = True  # ensure readiness after promotion
+        except Exception:
+            log.warning("auto-promotion check failed", exc_info=True)
+        finally:
+            await conn.close()
 
     async def reconcile_once(self, dry_run: bool | None = None) -> None:
         """Run a single reconcile cycle: compare config hash to DB, apply if changed."""

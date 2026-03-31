@@ -38,15 +38,26 @@ async def handle_ready(request: web.Request) -> web.Response:
 async def handle_reconcile(request: web.Request) -> web.Response:
     reconciler: Reconciler = request.app["reconciler"]
     dry_run = "dry_run" in request.rel_url.query
-    asyncio.create_task(reconciler.reconcile_once(dry_run=dry_run))
-    return web.json_response({"status": "triggered", "dry_run": dry_run})
+    if dry_run:
+        asyncio.create_task(reconciler.reconcile_once(dry_run=True))
+        return web.json_response({"status": "triggered", "dry_run": True})
+    try:
+        await reconciler.reconcile_once(dry_run=False)
+        return web.json_response({"status": "completed"})
+    except Exception as exc:
+        log.error("reconcile failed", error=str(exc))
+        return web.json_response({"status": "error", "detail": str(exc)}, status=500)
 
 
 async def handle_promote(request: web.Request) -> web.Response:
     from schema_manager.shadow import promote
     reconciler: Reconciler = request.app["reconciler"]
-    await promote(reconciler.config_path)
-    return web.json_response({"status": "promoted"})
+    try:
+        await promote(reconciler.config_path)
+        return web.json_response({"status": "promoted"})
+    except Exception as exc:
+        log.error("promote failed", error=str(exc))
+        return web.json_response({"status": "error", "detail": str(exc)}, status=500)
 
 
 async def start_server(app: web.Application, listen: str) -> None:
