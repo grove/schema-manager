@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 import asyncpg
 
 # Increment this when adding new tables or columns to schema-manager's own schema.
-CURRENT_VERSION = 2
+CURRENT_VERSION = 3
 
 _MIGRATIONS: dict[int, str] = {
     1: """
@@ -59,6 +59,11 @@ _MIGRATIONS: dict[int, str] = {
         -- Sequences (for shadow_log, dead letter, etc.)
         ALTER DEFAULT PRIVILEGES IN SCHEMA public
             GRANT USAGE, SELECT ON SEQUENCES TO sesam_ingest, sesam_writeback;
+    """,
+    3: """
+        -- sesam_ingest needs CREATE on the schema so the ingest engine can
+        -- run its own CREATE TABLE IF NOT EXISTS safety guard on startup.
+        GRANT CREATE ON SCHEMA public TO sesam_ingest;
     """,
 }
 
