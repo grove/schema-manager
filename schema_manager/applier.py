@@ -51,10 +51,10 @@ async def drop_orphaned_stream_tables(
 ) -> None:
     """Drop stream tables that exist in the DB but are no longer in config."""
     # pgtrickle may not be installed yet on first boot — skip gracefully.
-    table_exists = await conn.fetchval(
-        "SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'pgtrickle' AND tablename = 'pgt_stream_tables')"
+    ext_loaded = await conn.fetchval(
+        "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trickle')"
     )
-    if not table_exists:
+    if not ext_loaded:
         return
     existing = await conn.fetch(
         "SELECT pgt_name FROM pgtrickle.pgt_stream_tables"

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+from urllib.parse import urlparse
+
 import asyncpg
 
 # Increment this when adding new tables or columns to schema-manager's own schema.
@@ -75,3 +78,27 @@ async def run(conn: asyncpg.Connection) -> None:
         await conn.execute(
             "INSERT INTO schema_manager_version (version) VALUES ($1)", version
         )
+
+    # Always sync service-role passwords from env vars (idempotent on every startup).
+    await _ensure_role_passwords(conn)
+
+
+async def _ensure_role_passwords(conn: asyncpg.Connection) -> None:
+    """Set passwords on sesam_ingest / sesam_writeback from their DSN env vars.
+
+    Called on every startup so that secret rotations take effect without a
+    new migration version.
+    """
+    for env_var, rolname in [
+        ("INGEST_DATABASE_URL", "sesam_ingest"),
+        ("WRITEBACK_DATABASE_URL", "sesam_writeback"),
+    ]:
+        dsn = os.environ.get(env_var)
+        if not dsn:
+            continue
+        password = urlparse(dsn).password
+        if password:
+            # rolname is hardcoded above — not user input. Password is parameterised.
+            await conn.execute(
+                f"ALTER ROLE {rolname} WITH ENCRYPTED PASSWORD $1", password  # noqa: S608
+            )
