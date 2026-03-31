@@ -9,6 +9,10 @@ from __future__ import annotations
 
 from schema_manager.config import MappingConfig
 
+# Increment this whenever the generated DDL structure changes (new tables, columns, etc.).
+# It is mixed into the schema hash so a new image automatically triggers a reconcile.
+DDL_GENERATION_VERSION = 2
+
 
 def generate_stub_ddl(mapping: MappingConfig) -> str:
     """Return a SQL string that creates all staging table stubs.
@@ -41,6 +45,28 @@ def generate_stub_ddl(mapping: MappingConfig) -> str:
             f");\n"
             f"CREATE INDEX IF NOT EXISTS {table}_ingested_at_idx ON {table} (_ingested_at);\n"
             f"ALTER TABLE {table} OWNER TO sesam_ingest;"
+        )
+
+        # Dead-letter table: inout_dl_ingestion_<connector>_<datatype>
+        # Derived by replacing the inout_src_ prefix with inout_dl_ingestion_.
+        # Must be created here so the engine can find it in freeze mode.
+        if table.startswith("inout_src_"):
+            dl_table = "inout_dl_ingestion_" + table[len("inout_src_"):]
+        else:
+            dl_table = "inout_dl_ingestion_" + table
+        statements.append(
+            f"CREATE TABLE IF NOT EXISTS {dl_table} (\n"
+            f"    id              BIGSERIAL PRIMARY KEY,\n"
+            f"    external_id     TEXT,\n"
+            f"    raw             JSONB,\n"
+            f"    error_message   TEXT NOT NULL,\n"
+            f"    error_class     TEXT NOT NULL DEFAULT 'unknown',\n"
+            f"    failed_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n"
+            f"    sync_run_id     UUID,\n"
+            f"    requeued_at     TIMESTAMPTZ,\n"
+            f"    requeue_count   INT NOT NULL DEFAULT 0\n"
+            f");\n"
+            f"CREATE INDEX IF NOT EXISTS {dl_table}_failed_at_idx ON {dl_table} (failed_at DESC);"
         )
 
     for m in mapping.raw.get("mappings", []):

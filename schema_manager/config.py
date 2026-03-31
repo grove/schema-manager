@@ -102,4 +102,7 @@ def _compute_hash(mapping: dict, connectors: list[dict]) -> str:
     for connector in connectors:
         h.update(yaml.dump(connector.get("entities", {}), sort_keys=True).encode())
         h.update(yaml.dump(connector.get("fields", {}), sort_keys=True).encode())
+    # stub DDL generation version — bump when stubs.py structure changes
+    from schema_manager.stubs import DDL_GENERATION_VERSION
+    h.update(str(DDL_GENERATION_VERSION).encode())
     return h.hexdigest()

@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 import asyncpg
 
 # Increment this when adding new tables or columns to schema-manager's own schema.
-CURRENT_VERSION = 6
+CURRENT_VERSION = 7
 
 _MIGRATIONS: dict[int, str] = {
     1: """
@@ -90,6 +90,23 @@ _MIGRATIONS: dict[int, str] = {
         -- when it ALTERs staging tables for schema drift.
         GRANT inandout TO sesam_ingest;
     """,
+    7: """
+        -- Simulator gets its own role and schema so its tables (sim_records,
+        -- sim_mutations) are fully isolated from inout_* tables in public.
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sesam_simulator') THEN
+                CREATE ROLE sesam_simulator LOGIN;
+            END IF;
+        END
+        $$;
+
+        CREATE SCHEMA IF NOT EXISTS simulator AUTHORIZATION sesam_simulator;
+        GRANT USAGE, CREATE ON SCHEMA simulator TO sesam_simulator;
+
+        ALTER DEFAULT PRIVILEGES FOR ROLE sesam_simulator IN SCHEMA simulator
+            GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sesam_simulator;
+    """,
 }
 
 
@@ -122,6 +139,7 @@ async def _ensure_role_passwords(conn: asyncpg.Connection) -> None:
     for env_var, rolname in [
         ("INGEST_DATABASE_URL", "sesam_ingest"),
         ("WRITEBACK_DATABASE_URL", "sesam_writeback"),
+        ("SIMULATOR_DATABASE_URL", "sesam_simulator"),
     ]:
         dsn = os.environ.get(env_var)
         if not dsn:
