@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import signal
 import time
 from pathlib import Path
 
@@ -83,7 +84,48 @@ class Reconciler:
             poll_interval=self.cfg.poll_interval,
             on_change=self._on_watch_tick,
         )
-        await watcher.run()
+
+        _stop_event = asyncio.Event()
+        loop = asyncio.get_running_loop()
+
+        def _handle_stop(signum: int, frame: object) -> None:
+            loop.call_soon_threadsafe(_stop_event.set)
+
+        try:
+            signal.signal(signal.SIGTERM, _handle_stop)
+            signal.signal(signal.SIGINT, _handle_stop)
+        except (OSError, AttributeError):
+            pass
+
+        watcher_task = asyncio.create_task(watcher.run())
+        stop_task = asyncio.create_task(_stop_event.wait())
+        try:
+            await asyncio.wait(
+                {watcher_task, stop_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            for t in (watcher_task, stop_task):
+                if not t.done():
+                    t.cancel()
+                    try:
+                        await t
+                    except (asyncio.CancelledError, Exception):
+                        pass
+            log.info("schema_manager_shutting_down")
+            if self._leader_conn is not None and not self._leader_conn.is_closed():
+                try:
+                    await self._leader_conn.execute(
+                        "SELECT pg_advisory_unlock($1)", component_gate.LEADER_LOCK_KEY
+                    )
+                except Exception:
+                    pass
+                try:
+                    await self._leader_conn.close()
+                except Exception:
+                    pass
+            schema_leader.set(0)
+            log.info("schema_manager_stopped")
 
     async def _on_watch_tick(self) -> None:
         """Called on each watch cycle: reconcile config + check auto-promotion."""
