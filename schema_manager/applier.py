@@ -32,11 +32,19 @@ async def set_stream_schedules(
     stream_names: set[str],
     schedule: str = "30s",
 ) -> None:
-    """Set refresh schedules on leaf delta stream tables.
+    """Set refresh schedules and FULL refresh mode on all stream tables.
 
-    Only applies to stream tables whose name starts with '_delta_'.
+    pg-trickle's DIFFERENTIAL mode generates MAX() aggregates over every
+    non-key column, including jsonb ones (data, _base).  PostgreSQL has no
+    max(jsonb) aggregate, so the refresh worker crashes.  Force FULL mode on
+    every stream table to avoid this until the bug is fixed upstream.
+
+    Schedule is only applied to leaf delta stream tables (_delta_* prefix).
     """
     for name in sorted(stream_names):
+        await conn.execute(
+            f"SELECT pgtrickle.alter_stream_table('{name}', refresh_mode => 'FULL')"
+        )
         if name.startswith("_delta_"):
             await conn.execute(
                 f"SELECT pgtrickle.alter_stream_table('{name}', schedule => '{schedule}')"
