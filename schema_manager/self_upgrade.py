@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 import asyncpg
 
 # Increment this when adding new tables or columns to schema-manager's own schema.
-CURRENT_VERSION = 7
+CURRENT_VERSION = 8
 
 _MIGRATIONS: dict[int, str] = {
     1: """
@@ -106,6 +106,16 @@ _MIGRATIONS: dict[int, str] = {
 
         ALTER DEFAULT PRIVILEGES FOR ROLE sesam_simulator IN SCHEMA simulator
             GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sesam_simulator;
+    """,
+    8: """
+        -- Writeback updates _written flags in source tables. pgtrickle CDC
+        -- trigger functions then INSERT into pgtrickle_changes.changes_* using
+        -- the caller's privileges. sesam_writeback must have USAGE on the
+        -- schema and INSERT on current/future change-buffer tables.
+        GRANT USAGE ON SCHEMA pgtrickle_changes TO sesam_writeback;
+        GRANT INSERT ON ALL TABLES IN SCHEMA pgtrickle_changes TO sesam_writeback;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA pgtrickle_changes
+            GRANT INSERT ON TABLES TO sesam_writeback;
     """,
 }
 

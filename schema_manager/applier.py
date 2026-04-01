@@ -30,24 +30,19 @@ async def apply_pgtrickle_sql(conn: asyncpg.Connection, sql: str) -> None:
 async def set_stream_schedules(
     conn: asyncpg.Connection,
     stream_names: set[str],
-    schedule: str = "30s",
 ) -> None:
-    """Set refresh schedules and FULL refresh mode on all stream tables.
+    """Set refresh schedules on CDC leaf delta stream tables.
 
-    pg-trickle's DIFFERENTIAL mode generates MAX() aggregates over every
-    non-key column, including jsonb ones (data, _base).  PostgreSQL has no
-    max(jsonb) aggregate, so the refresh worker crashes.  Force FULL mode on
-    every stream table to avoid this until the bug is fixed upstream.
-
-    Schedule is only applied to leaf delta stream tables (_delta_* prefix).
+    Only _delta_* tables need an explicit schedule — they are the ingest write
+    targets and must pick up changes quickly.  All downstream views (_fwd_*,
+    identity, golden-record intermediates) run in DIFFERENTIAL mode and are
+    driven automatically by upstream change buffers; no explicit schedule is
+    needed.
     """
     for name in sorted(stream_names):
-        await conn.execute(
-            f"SELECT pgtrickle.alter_stream_table('{name}', refresh_mode => 'FULL')"
-        )
         if name.startswith("_delta_"):
             await conn.execute(
-                f"SELECT pgtrickle.alter_stream_table('{name}', schedule => '{schedule}')"
+                f"SELECT pgtrickle.alter_stream_table('{name}', schedule => '1s')"
             )
 
 
